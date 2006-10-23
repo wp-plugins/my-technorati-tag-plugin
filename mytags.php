@@ -2,136 +2,201 @@
 /*
 Plugin Name: My Technorati Tag Cloud
 Plugin URI: http://blog.mericson.com/
-Description: This will download your technorati tags and display them as a tag cloud 
+Description: This will download your technorati tags and display them as a tag cloud
 Author: Matt Ericson
-Version: 1.00
+Version: 2.00
 Author URI: http://blog.mericson.com/
 
 INSTRUCTIONS
 ============
 
-Add the following code to your template where you want your tag cloud to show up
-It will format the data from technorati to look like your tag cloud on your technorati profile
+This version uses wordpress sidebar widget
 
-<?php  technoratiTagCloud("url","api key"); ?>
+Just place this file in your plugins directory then enable it
 
-You may also request the number of tags you want to see the default is 20.
+Click on "Presentation" and then "Sidebar Widgets"
 
-<?php  technoratiTagCloud("url","api key", "num of tag"); ?>
+Drag this over to your side bar hit the configure button 
+enter your user name and you are done
 
-This version of the code will use WP 2.0 caching to use it correctly you 
-need to create a "wp-content/cache" directory that is writeable by the 
+This version of the code will use WP 2.0 caching to use it correctly you
+need to create a "wp-content/cache" directory that is writeable by the
 Web user
 
 */
 
-function technoratiTagCloud($url , $apiKey, $limit=20, $cache_time = 600) {
+
+function technorati_tag_cloud_init() {
+	// Check for the required API functions
+	if ( !function_exists('register_sidebar_widget') || !function_exists('register_widget_control') ) {
+		return;
+	}
 
 
-    $url = urlencode($url);
-    $api_url = "http://api.technorati.com/blogposttags?url=" . $url . "&key=" . $apiKey . "&limit=" . $limit;
+	function technorati_tag_cloud_contol () {
+		$options = $newoptions = get_option('widget_technorati_tag_cloud_list');
+		if ( $_POST['tag-cloud-submit'] ) {
+			$newoptions['url']   = strip_tags(stripslashes($_POST['tag-cloud-url']));
+			$newoptions['key']   = strip_tags(stripslashes($_POST['tag-cloud-key']));
+			$newoptions['limit']   = strip_tags(stripslashes($_POST['tag-cloud-limit']));
+			$newoptions['title']  = strip_tags(stripslashes($_POST['tag-cloud-title']));
+		
+			// Will preset the main url as the url to show
+			if (strlen($newoptions['url'])  == 0) {
+				$newoptions['url']  =  strip_tags(get_bloginfo('home'));
+			}
+		}
+		
+		if ( $options != $newoptions ) {
+			$options = $newoptions;
+			update_option('widget_technorati_tag_cloud_list', $options);
+		}
+		
+        ?>
+        <div style="text-align:right">
+            <label for="tag-cloud-title" style="line-height:35px;display:block;">Title: <input type="text" id="tag-cloud-title" name="tag-cloud-title" value="<?php echo htmlspecialchars($options['title']); ?>" /></label>
+            <label for="tag-cloud-url" style="line-height:35px;display:block;">Url: <input type="text" id="tag-cloud-url" name="tag-cloud-url" value="<?php echo htmlspecialchars($options['url']); ?>" /></label>
+            <label for="tag-cloud-key" style="line-height:35px;display:block;"><a href="http://www.technorati.com/developers/apikey.html" target="_new">Api Key:</a> <input type="text" id="tag-cloud-key" name="tag-cloud-key" value="<?php echo htmlspecialchars($options['key']); ?>" /></label>
+            <label for="tag-cloud-limit" style="line-height:35px;display:block;">Limit: <input type="text" id="tag-cloud-limit" name="tag-cloud-limit" value="<?php echo htmlspecialchars($options['limit']); ?>" /></label>
+              
+            <input type="hidden" name="tag-cloud-submit" id="tag-cloud-submit" value="Save" />
+            <input type="submit" value="Save" />
+        </div>
+        <?php
+	}
 
-    $cacheKey = "techtagcloud.$url.$limit";
+	function technoratiTagCloud() {
 
-    wp_cache_init();
-    $data = wp_cache_get($cacheKey);
+		$options = get_option('widget_technorati_tag_cloud_list');
 
-    if (! $data) {
-        $c = curl_init($api_url);
-        curl_setopt($c, CURLOPT_RETURNTRANSFER,1);
-        curl_setopt($c, CURLOPT_CONNECTTIMEOUT, 2);
-        curl_setopt($c, CURLOPT_TIMEOUT, 4);
-        curl_setopt($c, CURLOPT_USERAGENT, "Technorati tagcloud plugin");
-        $response = curl_exec($c);
-        $info = curl_getinfo($c);
+		$cache_time = 600;
+		$url    = $options['url'];
+		$apiKey = $options['key'];
+		$limit  = $options['limit'];
+		$title  = $options['title'];
 
-        $curl_error_code = $info['http_code'];
-        curl_close($c);
-        if ($curl_error_code == 200) {
-            $data = $response;
+		if (!$url || !$apiKey) {
+			return false;
+		}
+		
+		if (!$limit) {
+			$limit = 20;
+		}
+		$url = urlencode($url);
+		$api_url = "http://api.technorati.com/blogposttags?url=" . $url . "&key=" . $apiKey . "&limit=" . $limit;
 
-            wp_cache_set($cacheKey,$data,'',$cache_time);
-            wp_cache_close();
-        } elseif ($curl_error_code) {
-            //do something here
-        } else {
-            //do something here
-        }
-    }
-    //Now I parse and show the responce
+		$cacheKey = "techtagcloud.$url.$limit";
 
-    
-    $xml = XML_unserialize($data);
+		wp_cache_init();
+		$data = wp_cache_get($cacheKey);
 
-    
-    $items = $xml['tapi']['document']['item'];
-    if (!isset($items[0])) {
-        $tmp = $items;
-        unset($items);
-        $items[0] = $tmp;
-        unset ($tmp);
-    }
+		if (! $data) {
+			$c = curl_init($api_url);
+			curl_setopt($c, CURLOPT_RETURNTRANSFER,1);
+			curl_setopt($c, CURLOPT_CONNECTTIMEOUT, 2);
+			curl_setopt($c, CURLOPT_TIMEOUT, 4);
+			curl_setopt($c, CURLOPT_USERAGENT, "Technorati tagcloud plugin");
+			$response = curl_exec($c);
+			$info = curl_getinfo($c);
 
+			$curl_error_code = $info['http_code'];
+			curl_close($c);
+			if ($curl_error_code == 200) {
+				$data = $response;
 
-    $max = 0;
-    foreach ($items as $item ) {
-        $tagData[$item['tag']] = $item['posts'] ;
-        $min = $item['posts'];
-        if ($item['posts'] > $max) {
-            $max = $item['posts'];
-        }
-    }
-
-    $rangemin   = 0;  // was 9 for font-size
-    $rangemax   = 15; // was 24 for font-size
+				wp_cache_set($cacheKey,$data,'',$cache_time);
+				wp_cache_close();
+			} elseif ($curl_error_code) {
+				//do something here
+			} else {
+				//do something here
+			}
+		}
+		//Now I parse and show the responce
 
 
-    $difference = log($max) - log($min);
-    $scale = $difference;
+		$xml = XML_unserialize($data);
 
-    if ($max==$min) $scale=1.0;
-    $scale = $scale / ($rangemax-$rangemin);
 
-    echo "<style type='text/css'>
+		$items = $xml['tapi']['document']['item'];
+		if (!isset($items)) {
+			return false;
+		}
+		if (!isset($items[0])) {
+			$tmp = $items;
+			unset($items);
+			$items[0] = $tmp;
+			unset ($tmp);
+		}
+
+
+		$max = 0;
+		foreach ($items as $item ) {
+			$tagData[$item['tag']] = $item['posts'] ;
+			$min = $item['posts'];
+			if ($item['posts'] > $max) {
+				$max = $item['posts'];
+			}
+		}
+
+		$rangemin   = 0;  // was 9 for font-size
+		$rangemax   = 15; // was 24 for font-size
+
+
+		$difference = log($max) - log($min);
+		$scale = $difference;
+
+		if ($max==$min) $scale=1.0;
+		$scale = $scale / ($rangemax-$rangemin);
+
+		echo "<style type='text/css'>
 .heatmap {font-size: 0.97em;}
 .heatmap li {display: inline;}
 .heatmap em {font-style: normal; font-size: 1.03em;}
 </style>
 ";
 
-    if (sizeof($tagData)) {
-        ksort($tagData);
-        echo "<ul class=\"heatmap\" id=\"bigheatmap\">\n";
+		if (sizeof($tagData)) {
+			ksort($tagData);
+			if (strlen($title)) {
+				echo "<h2 class=\"widgettitle\">$title</h2>";
+			}
+			echo "<ul class=\"heatmap\" id=\"bigheatmap\">\n";
 
-        foreach($tagData as $tag=>$posts){
+			foreach($tagData as $tag=>$posts){
 
-            $heat = min($rangemax,$rangemin+round((log($posts) - log($min)) / $scale));
+				$heat = min($rangemax,$rangemin+round((log($posts) - log($min)) / $scale));
 
-            $link = urlencode($tag);
-            $disp = htmlspecialchars($tag);
-            $link = str_replace("%2F", "/", $link);
+				$link = urlencode($tag);
+				$disp = htmlspecialchars($tag);
+				$link = str_replace("%2F", "/", $link);
 
-            echo "<li>";
+				echo "<li>";
 
-            for ($i=0;$i<$heat;$i++) {
-                echo "<em>";
-            }
+				for ($i=0;$i<$heat;$i++) {
+					echo "<em>";
+				}
 
-            echo "<a href=\"http://technorati.com/tag/{$link}?from={$url}\">{$disp}</a>";
+				echo "<a href=\"http://technorati.com/tag/{$link}?from={$url}\">{$disp}</a>";
 
 
-            for ($i=0;$i<$heat;$i++) {
-                echo "</em>";
-            }
+				for ($i=0;$i<$heat;$i++) {
+					echo "</em>";
+				}
 
-            echo "... </li>\n";
-        }
-        echo "</ul>\n";
-    }
+				echo "... </li>\n";
+			}
+			echo "</ul>\n";
+		}
 
+	}
+
+
+	register_sidebar_widget('Technorati Tag Cloud', 'technoratiTagCloud');
+	register_widget_control('Technorati Tag Cloud', 'technorati_tag_cloud_contol');
 }
 
-
+add_action('plugins_loaded', 'technorati_tag_cloud_init');
 ###################################################################################
 # XML class: utility class to be used with PHP's XML handling functions
 ###################################################################################
